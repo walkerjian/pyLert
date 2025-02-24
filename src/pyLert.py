@@ -12,7 +12,12 @@ class ConnectionMonitor:
         self.filter_cdn = filter_cdn
         self.cdn_providers = {"Akamai": ["akamai.net", "akamaitechnologies.com"],
                               "Cloudflare": ["cloudflare.com"],
-                              "Fastly": ["fastly.net"]}
+                              "Fastly": ["fastly.net"],
+                              "Amazon CloudFront": ["cloudfront.net"],
+                              "Google": ["google.com", "googleusercontent.com"],
+                              "Microsoft Azure": ["azureedge.net", "microsoft.com"],
+                              "Apple": ["apple.com", "icloud.com"],
+                              "Facebook": ["fbcdn.net", "facebook.com"]}
     
     def get_connections(self):
         connections = []
@@ -31,7 +36,7 @@ class ConnectionMonitor:
                 continue
             if self.filter_inbound and direction != "Inbound":
                 continue
-            if self.filter_cdn and not cdn_match:
+            if self.filter_cdn and cdn_match == "Unknown":
                 continue
             
             connections.append({
@@ -42,7 +47,7 @@ class ConnectionMonitor:
                 "remote_ip": remote_ip,
                 "remote_port": remote_port,
                 "direction": direction,
-                "cdn": cdn_match or "Unknown"
+                "cdn": cdn_match
             })
         
         return connections
@@ -59,14 +64,18 @@ class ConnectionMonitor:
         return "Outbound"
 
     def check_cdn(self, remote_ip):
+        if not remote_ip:
+            return "Unknown"  # Prevents NoneType error
+        
         try:
             hostname = socket.gethostbyaddr(remote_ip)[0]
             for provider, domains in self.cdn_providers.items():
                 if any(domain in hostname for domain in domains):
                     return provider
         except (socket.herror, socket.gaierror):
-            return None
-        return None
+            return "Unknown"  # Handles lookup failures
+        
+        return "Unknown"
     
     def format_output(self, connections):
         if self.output_format == 'json':
@@ -77,26 +86,12 @@ class ConnectionMonitor:
             return self.format_table(connections)
     
     def format_table(self, connections):
-        header = f"{'Process':20} {'PID':6} {'Local IP':15} {'L.Port':6} {'Remote IP':15} {'R.Port':6} {'Direction':10} {'CDN':10}"
+        header = f"{'Process':20} {'PID':6} {'Local IP':15} {'L.Port':6} {'Remote IP':15} {'R.Port':6} {'Direction':10} {'CDN':20}"
         separator = '-' * len(header)
         rows = [header, separator]
         for conn in connections:
-            rows.append(f"{conn['process']:20} {conn['pid']:6} {conn['local_ip']:15} {conn['local_port']:6} {conn['remote_ip'] or '-':15} {conn['remote_port'] or '-':6} {conn['direction']:10} {conn['cdn']:10}")
+            rows.append(f"{conn['process']:20} {conn['pid']:6} {conn['local_ip']:15} {conn['local_port']:6} {conn['remote_ip'] or '-':15} {conn['remote_port'] or '-':6} {conn['direction']:10} {conn['cdn']:20}")
         return '\n'.join(rows)
-    
-    def format_pascal(self, connections):
-        pascal_str = "type Connection = record\n"
-        for conn in connections:
-            pascal_str += f"    Process: string := '{conn['process']}';\n"
-            pascal_str += f"    PID: integer := {conn['pid']};\n"
-            pascal_str += f"    LocalIP: string := '{conn['local_ip']}';\n"
-            pascal_str += f"    LocalPort: integer := {conn['local_port']};\n"
-            pascal_str += f"    RemoteIP: string := '{conn['remote_ip'] or '-'}';\n"
-            pascal_str += f"    RemotePort: integer := {conn['remote_port'] or 0};\n"
-            pascal_str += f"    Direction: string := '{conn['direction']}';\n"
-            pascal_str += f"    CDN: string := '{conn['cdn']}';\n"
-        pascal_str += "end;"
-        return pascal_str
     
     def run(self):
         connections = self.get_connections()
