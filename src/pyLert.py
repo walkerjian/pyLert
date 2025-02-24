@@ -3,6 +3,7 @@ import socket
 import json
 import argparse
 from datetime import datetime
+from termcolor import colored
 
 class ConnectionMonitor:
     def __init__(self, output_format='table', filter_inbound=False, filter_outbound=False, filter_cdn=False):
@@ -42,10 +43,10 @@ class ConnectionMonitor:
             connections.append({
                 "process": process_name,
                 "pid": pid,
-                "local_ip": local_ip,
+                "local_ip": self.format_ip(local_ip),
                 "local_port": local_port,
-                "remote_ip": remote_ip,
-                "remote_port": remote_port,
+                "remote_ip": self.format_ip(remote_ip) if remote_ip else '-',
+                "remote_port": remote_port if remote_port else '-',
                 "direction": direction,
                 "cdn": cdn_match
             })
@@ -77,6 +78,11 @@ class ConnectionMonitor:
         
         return "Unknown"
     
+    def format_ip(self, ip):
+        if ':' in ip:  # IPv6 formatting
+            return ip.split('%')[0][:20]  # Truncate long IPv6 addresses
+        return ip
+
     def format_output(self, connections):
         if self.output_format == 'json':
             return json.dumps(connections, indent=4)
@@ -86,11 +92,12 @@ class ConnectionMonitor:
             return self.format_table(connections)
     
     def format_table(self, connections):
-        header = f"{'Process':20} {'PID':6} {'Local IP':15} {'L.Port':6} {'Remote IP':15} {'R.Port':6} {'Direction':10} {'CDN':20}"
+        header = f"{'Process':20} {'PID':6} {'Local IP':20} {'L.Port':6} {'Remote IP':20} {'R.Port':6} {'Direction':10} {'CDN':20}"
         separator = '-' * len(header)
         rows = [header, separator]
         for conn in connections:
-            rows.append(f"{conn['process']:20} {conn['pid']:6} {conn['local_ip']:15} {conn['local_port']:6} {conn['remote_ip'] or '-':15} {conn['remote_port'] or '-':6} {conn['direction']:10} {conn['cdn']:20}")
+            direction_color = 'green' if conn['direction'] == "Inbound" else 'red'
+            rows.append(f"{conn['process']:20} {conn['pid']:6} {conn['local_ip']:20} {conn['local_port']:6} {conn['remote_ip']:20} {conn['remote_port']:6} {colored(conn['direction'], direction_color):10} {conn['cdn']:20}")
         return '\n'.join(rows)
     
     def run(self):
