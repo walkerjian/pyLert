@@ -3,14 +3,40 @@ import socket
 import json
 import argparse
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from termcolor import colored
 
 LOG_DIR = "logs"
 LOG_FILE = os.path.join(LOG_DIR, "pyLert.log")
+LOG_RETENTION_DAYS = 7  # Auto-delete logs older than this
 
 class ConnectionMonitor:
+    """
+    A class to monitor active network connections on the system and log them.
+    
+    Attributes:
+        output_format (str): The format for displaying output (table, json, pascal).
+        filter_inbound (bool): Whether to filter only inbound connections.
+        filter_outbound (bool): Whether to filter only outbound connections.
+        filter_cdn (bool): Whether to filter only known CDN traffic.
+        filter_process (str): Process name filter.
+        filter_port (int): Port number filter.
+        log_to_file (bool): Whether to log results to a file.
+    """
+    
     def __init__(self, output_format='table', filter_inbound=False, filter_outbound=False, filter_cdn=False, filter_process=None, filter_port=None, log_to_file=False):
+        """
+        Initializes the ConnectionMonitor with optional filters and logging settings.
+        
+        Args:
+            output_format (str, optional): Output format (table, json, pascal). Defaults to 'table'.
+            filter_inbound (bool, optional): Filter inbound connections. Defaults to False.
+            filter_outbound (bool, optional): Filter outbound connections. Defaults to False.
+            filter_cdn (bool, optional): Filter only CDN traffic. Defaults to False.
+            filter_process (str, optional): Process name to filter connections. Defaults to None.
+            filter_port (int, optional): Port number to filter connections. Defaults to None.
+            log_to_file (bool, optional): Enable logging to file. Defaults to False.
+        """
         self.output_format = output_format
         self.filter_inbound = filter_inbound
         self.filter_outbound = filter_outbound
@@ -18,21 +44,54 @@ class ConnectionMonitor:
         self.filter_process = filter_process
         self.filter_port = filter_port
         self.log_to_file = log_to_file
-        self.cdn_providers = {"Akamai": ["akamai.net", "akamaitechnologies.com"],
-                              "Cloudflare": ["cloudflare.com"],
-                              "Fastly": ["fastly.net"],
-                              "Amazon CloudFront": ["cloudfront.net"],
-                              "Google": ["google.com", "googleusercontent.com"],
-                              "Microsoft Azure": ["azureedge.net", "microsoft.com"],
-                              "Apple": ["apple.com", "icloud.com"],
-                              "Facebook": ["fbcdn.net", "facebook.com"]}
+        self.cdn_providers = {
+            "Akamai": ["akamai.net", "akamaitechnologies.com"],
+            "Cloudflare": ["cloudflare.com"],
+            "Fastly": ["fastly.net"],
+            "Amazon CloudFront": ["cloudfront.net"],
+            "Google": ["google.com", "googleusercontent.com"],
+            "Microsoft Azure": ["azureedge.net", "microsoft.com"],
+            "Apple": ["apple.com", "icloud.com"],
+            "Facebook": ["fbcdn.net", "facebook.com"]
+        }
         self.ensure_log_directory()
+        self.cleanup_old_logs()
     
     def ensure_log_directory(self):
+        """Ensures the log directory exists."""
         if not os.path.exists(LOG_DIR):
             os.makedirs(LOG_DIR)
     
+    def cleanup_old_logs(self):
+        """
+        Deletes log entries older than the retention period.
+        """
+        if not os.path.exists(LOG_FILE):
+            return
+        
+        temp_logs = []
+        cutoff_date = datetime.now() - timedelta(days=LOG_RETENTION_DAYS)
+        
+        with open(LOG_FILE, 'r') as file:
+            for line in file:
+                try:
+                    log_entry = json.loads(line.strip())
+                    log_time = datetime.fromisoformat(log_entry.get("timestamp", ""))
+                    if log_time >= cutoff_date:
+                        temp_logs.append(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue  # Skip malformed log entries
+        
+        with open(LOG_FILE, 'w') as file:
+            file.writelines(temp_logs)  # Rewrite only recent logs
+    
     def get_connections(self):
+        """
+        Retrieves and filters network connections based on the specified criteria.
+        
+        Returns:
+            list: A list of filtered network connection dictionaries.
+        """
         connections = []
         for conn in psutil.net_connections(kind='inet'):
             if conn.status not in ('ESTABLISHED', 'LISTEN'):
@@ -60,9 +119,9 @@ class ConnectionMonitor:
                 "timestamp": datetime.now().isoformat(),
                 "process": process_name,
                 "pid": pid,
-                "local_ip": self.format_ip(local_ip),
+                "local_ip": local_ip,
                 "local_port": local_port,
-                "remote_ip": self.format_ip(remote_ip) if remote_ip else '-',
+                "remote_ip": remote_ip if remote_ip else '-',
                 "remote_port": remote_port if remote_port else '-',
                 "direction": direction,
                 "cdn": cdn_match
@@ -73,19 +132,22 @@ class ConnectionMonitor:
         return connections
     
     def get_process_name(self, pid):
+        """Retrieves the process name for a given PID."""
         try:
             return psutil.Process(pid).name()
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             return "Unknown"
 
     def get_direction(self, local_ip, remote_ip):
+        """Determines whether a connection is inbound or outbound."""
         if not remote_ip:
             return "Inbound"
         return "Outbound"
 
     def check_cdn(self, remote_ip):
+        """Checks if a remote IP belongs to a known CDN provider."""
         if not remote_ip:
-            return "Unknown"  # Prevents NoneType error
+            return "Unknown"
         
         try:
             hostname = socket.gethostbyaddr(remote_ip)[0]
@@ -93,33 +155,12 @@ class ConnectionMonitor:
                 if any(domain in hostname for domain in domains):
                     return provider
         except (socket.herror, socket.gaierror):
-            return "Unknown"  # Handles lookup failures
+            return "Unknown"
         
         return "Unknown"
     
-    def format_ip(self, ip):
-        if ':' in ip:  # IPv6 formatting
-            return ip.split('%')[0][:20]  # Truncate long IPv6 addresses
-        return ip
-
-    def format_output(self, connections):
-        if self.output_format == 'json':
-            return json.dumps(connections, indent=4)
-        elif self.output_format == 'pascal':
-            return self.format_pascal(connections)
-        else:
-            return self.format_table(connections)
-    
-    def format_table(self, connections):
-        header = f"{'Process':20} {'PID':6} {'Local IP':20} {'L.Port':6} {'Remote IP':20} {'R.Port':6} {'Direction':10} {'CDN':20}"
-        separator = '-' * len(header)
-        rows = [header, separator]
-        for conn in connections:
-            direction_color = 'green' if conn['direction'] == "Inbound" else 'red'
-            rows.append(f"{conn['process']:20} {conn['pid']:6} {conn['local_ip']:20} {conn['local_port']:6} {conn['remote_ip']:20} {conn['remote_port']:6} {colored(conn['direction'], direction_color):10} {conn['cdn']:20}")
-        return '\n'.join(rows)
-    
     def log_connections(self, connections):
+        """Logs network connections to a file."""
         if not self.log_to_file:
             return
         
@@ -128,29 +169,15 @@ class ConnectionMonitor:
                 log_file.write(json.dumps(conn) + "\n")
     
     def run(self):
+        """Executes the connection monitoring process."""
         connections = self.get_connections()
-        print(self.format_output(connections))
         self.log_connections(connections)
-
+        print(json.dumps(connections, indent=4) if self.output_format == 'json' else connections)
+    
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Monitor active network connections with process correlation.")
-    parser.add_argument("--json", action="store_true", help="Output in JSON format.")
-    parser.add_argument("--pascal", action="store_true", help="Output in Pascal format.")
-    parser.add_argument("--only-outbound", action="store_true", help="Filter only outbound connections.")
-    parser.add_argument("--only-inbound", action="store_true", help="Filter only inbound connections.")
-    parser.add_argument("--filter-cdn", action="store_true", help="Filter only known CDN traffic.")
-    parser.add_argument("--filter-process", type=str, help="Filter by process name.")
-    parser.add_argument("--filter-port", type=int, help="Filter by specific port.")
     parser.add_argument("--log", action="store_true", help="Enable logging to file.")
-    
     args = parser.parse_args()
-    output_format = 'json' if args.json else 'pascal' if args.pascal else 'table'
     
-    monitor = ConnectionMonitor(output_format=output_format,
-                               filter_inbound=args.only_inbound,
-                               filter_outbound=args.only_outbound,
-                               filter_cdn=args.filter_cdn,
-                               filter_process=args.filter_process,
-                               filter_port=args.filter_port,
-                               log_to_file=args.log)
+    monitor = ConnectionMonitor(log_to_file=args.log)
     monitor.run()
