@@ -6,11 +6,13 @@ from datetime import datetime
 from termcolor import colored
 
 class ConnectionMonitor:
-    def __init__(self, output_format='table', filter_inbound=False, filter_outbound=False, filter_cdn=False):
+    def __init__(self, output_format='table', filter_inbound=False, filter_outbound=False, filter_cdn=False, filter_process=None, filter_port=None):
         self.output_format = output_format
         self.filter_inbound = filter_inbound
         self.filter_outbound = filter_outbound
         self.filter_cdn = filter_cdn
+        self.filter_process = filter_process
+        self.filter_port = filter_port
         self.cdn_providers = {"Akamai": ["akamai.net", "akamaitechnologies.com"],
                               "Cloudflare": ["cloudflare.com"],
                               "Fastly": ["fastly.net"],
@@ -38,6 +40,10 @@ class ConnectionMonitor:
             if self.filter_inbound and direction != "Inbound":
                 continue
             if self.filter_cdn and cdn_match == "Unknown":
+                continue
+            if self.filter_process and self.filter_process.lower() not in process_name.lower():
+                continue
+            if self.filter_port and (remote_port != self.filter_port and local_port != self.filter_port):
                 continue
             
             connections.append({
@@ -111,6 +117,8 @@ if __name__ == "__main__":
     parser.add_argument("--only-outbound", action="store_true", help="Filter only outbound connections.")
     parser.add_argument("--only-inbound", action="store_true", help="Filter only inbound connections.")
     parser.add_argument("--filter-cdn", action="store_true", help="Filter only known CDN traffic.")
+    parser.add_argument("--filter-process", type=str, help="Filter by process name.")
+    parser.add_argument("--filter-port", type=int, help="Filter by specific port.")
     
     args = parser.parse_args()
     output_format = 'json' if args.json else 'pascal' if args.pascal else 'table'
@@ -118,5 +126,7 @@ if __name__ == "__main__":
     monitor = ConnectionMonitor(output_format=output_format,
                                filter_inbound=args.only_inbound,
                                filter_outbound=args.only_outbound,
-                               filter_cdn=args.filter_cdn)
+                               filter_cdn=args.filter_cdn,
+                               filter_process=args.filter_process,
+                               filter_port=args.filter_port)
     monitor.run()
