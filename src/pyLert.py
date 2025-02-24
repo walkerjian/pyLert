@@ -2,17 +2,22 @@ import psutil
 import socket
 import json
 import argparse
+import os
 from datetime import datetime
 from termcolor import colored
 
+LOG_DIR = "logs"
+LOG_FILE = os.path.join(LOG_DIR, "pyLert.log")
+
 class ConnectionMonitor:
-    def __init__(self, output_format='table', filter_inbound=False, filter_outbound=False, filter_cdn=False, filter_process=None, filter_port=None):
+    def __init__(self, output_format='table', filter_inbound=False, filter_outbound=False, filter_cdn=False, filter_process=None, filter_port=None, log_to_file=False):
         self.output_format = output_format
         self.filter_inbound = filter_inbound
         self.filter_outbound = filter_outbound
         self.filter_cdn = filter_cdn
         self.filter_process = filter_process
         self.filter_port = filter_port
+        self.log_to_file = log_to_file
         self.cdn_providers = {"Akamai": ["akamai.net", "akamaitechnologies.com"],
                               "Cloudflare": ["cloudflare.com"],
                               "Fastly": ["fastly.net"],
@@ -21,6 +26,11 @@ class ConnectionMonitor:
                               "Microsoft Azure": ["azureedge.net", "microsoft.com"],
                               "Apple": ["apple.com", "icloud.com"],
                               "Facebook": ["fbcdn.net", "facebook.com"]}
+        self.ensure_log_directory()
+    
+    def ensure_log_directory(self):
+        if not os.path.exists(LOG_DIR):
+            os.makedirs(LOG_DIR)
     
     def get_connections(self):
         connections = []
@@ -46,7 +56,8 @@ class ConnectionMonitor:
             if self.filter_port and (remote_port != self.filter_port and local_port != self.filter_port):
                 continue
             
-            connections.append({
+            conn_data = {
+                "timestamp": datetime.now().isoformat(),
                 "process": process_name,
                 "pid": pid,
                 "local_ip": self.format_ip(local_ip),
@@ -55,8 +66,10 @@ class ConnectionMonitor:
                 "remote_port": remote_port if remote_port else '-',
                 "direction": direction,
                 "cdn": cdn_match
-            })
-        
+            }
+            
+            connections.append(conn_data)
+            
         return connections
     
     def get_process_name(self, pid):
@@ -106,9 +119,18 @@ class ConnectionMonitor:
             rows.append(f"{conn['process']:20} {conn['pid']:6} {conn['local_ip']:20} {conn['local_port']:6} {conn['remote_ip']:20} {conn['remote_port']:6} {colored(conn['direction'], direction_color):10} {conn['cdn']:20}")
         return '\n'.join(rows)
     
+    def log_connections(self, connections):
+        if not self.log_to_file:
+            return
+        
+        with open(LOG_FILE, 'a') as log_file:
+            for conn in connections:
+                log_file.write(json.dumps(conn) + "\n")
+    
     def run(self):
         connections = self.get_connections()
         print(self.format_output(connections))
+        self.log_connections(connections)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Monitor active network connections with process correlation.")
@@ -119,6 +141,7 @@ if __name__ == "__main__":
     parser.add_argument("--filter-cdn", action="store_true", help="Filter only known CDN traffic.")
     parser.add_argument("--filter-process", type=str, help="Filter by process name.")
     parser.add_argument("--filter-port", type=int, help="Filter by specific port.")
+    parser.add_argument("--log", action="store_true", help="Enable logging to file.")
     
     args = parser.parse_args()
     output_format = 'json' if args.json else 'pascal' if args.pascal else 'table'
@@ -128,5 +151,6 @@ if __name__ == "__main__":
                                filter_outbound=args.only_outbound,
                                filter_cdn=args.filter_cdn,
                                filter_process=args.filter_process,
-                               filter_port=args.filter_port)
+                               filter_port=args.filter_port,
+                               log_to_file=args.log)
     monitor.run()
