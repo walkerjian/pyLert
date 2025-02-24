@@ -15,10 +15,35 @@ REFRESH_INTERVAL = 2  # Live mode refresh interval in seconds
 class ConnectionMonitor:
     """
     A class to monitor active network connections on the system and log them.
+        
+    Attributes:
+        output_format (str): The format for displaying output (table, json, pascal).
+        filter_inbound (bool): Whether to filter only inbound connections.
+        filter_outbound (bool): Whether to filter only outbound connections.
+        filter_cdn (bool): Whether to filter only known CDN traffic.
+        filter_process (str): Process name filter.
+        filter_port (int): Port number filter.
+        log_to_file (bool): Whether to log results to a file.
+        live_mode (bool): Whether to enable real-time monitoring.
+        cdn_providers (dict): A dictionary of known CDN providers and their domains.
+
     """
     
     def __init__(self, output_format='table', filter_inbound=False, filter_outbound=False, filter_cdn=False, filter_process=None, filter_port=None, log_to_file=False, live_mode=False):
-        """Initializes the ConnectionMonitor with optional filters and logging settings."""
+        """
+        Initializes the ConnectionMonitor with optional filters and logging settings.
+
+        Args:
+            output_format (str, optional): Output format (table, json, pascal). Defaults to 'table'.
+            filter_inbound (bool, optional): Filter inbound connections. Defaults to False.
+            filter_outbound (bool, optional): Filter outbound connections. Defaults to False.
+            filter_cdn (bool, optional): Filter only CDN traffic. Defaults to False.
+            filter_process (str, optional): Process name to filter connections. Defaults to None.
+            filter_port (int, optional): Port number to filter connections. Defaults to None.
+            log_to_file (bool, optional): Enable logging to file. Defaults to False.
+            live_mode (bool, optional): Enable real-time monitoring. Defaults to False.
+        
+        """
         self.output_format = output_format
         self.filter_inbound = filter_inbound
         self.filter_outbound = filter_outbound
@@ -87,7 +112,13 @@ class ConnectionMonitor:
         return "Unknown"
     
     def get_connections(self):
-        """Retrieves and filters network connections based on the specified criteria."""
+        """
+        Retrieves and filters network connections based on the specified criteria.
+        
+        Returns:
+            list: A list of filtered network connection dictionaries.
+
+        """
         connections = []
         for conn in psutil.net_connections(kind='inet'):
             if conn.status not in ('ESTABLISHED', 'LISTEN'):
